@@ -16,7 +16,10 @@ def supabase_enabled() -> bool:
     return bool(SUPABASE_URL and SUPABASE_ANON_KEY)
 
 
-def supabase_get(table: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def supabase_get(
+    table: str,
+    params: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     if not supabase_enabled():
         return []
 
@@ -24,13 +27,16 @@ def supabase_get(table: str, params: dict[str, Any] | None = None) -> list[dict[
         "apikey": SUPABASE_ANON_KEY,
         "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
     }
+
     url = f"{SUPABASE_URL}/rest/v1/{table}"
+
     response = requests.get(
         url,
         headers=headers,
         params=params or {},
         timeout=REQUEST_TIMEOUT,
     )
+
     response.raise_for_status()
     return response.json()
 
@@ -74,7 +80,7 @@ def mock_forecast(target_date: str, entry_time: str) -> dict[str, Any]:
                 "acquisition_probability": 87 if weekend else 96,
                 "predicted_sellout_time": "18:20" if weekend else None,
                 "confidence_low": "16:40" if weekend else None,
-                "confidence_high": "記録上限" if weekend else "記録上限",
+                "confidence_high": "記録上限",
             },
         ],
         "reasons": [
@@ -91,10 +97,12 @@ def index():
 
 @app.get("/api/status")
 def api_status():
-    return jsonify({
-        "supabase_connected": supabase_enabled(),
-        "today": date.today().isoformat(),
-    })
+    return jsonify(
+        {
+            "supabase_connected": supabase_enabled(),
+            "today": date.today().isoformat(),
+        }
+    )
 
 
 @app.get("/api/forecast")
@@ -106,7 +114,11 @@ def api_forecast():
         datetime.strptime(target_date, "%Y-%m-%d")
         datetime.strptime(entry_time, "%H:%M")
     except ValueError:
-        return jsonify({"error": "日付または時刻の形式が正しくありません。"}), 400
+        return jsonify(
+            {
+                "error": "日付または時刻の形式が正しくありません。",
+            }
+        ), 400
 
     if not supabase_enabled():
         return jsonify(mock_forecast(target_date, entry_time))
@@ -132,12 +144,15 @@ def api_forecast():
         )
 
         if not prediction_rows:
-            return jsonify({
-                "error": "この日付・入園時刻の予測データはまだありません。",
-                "data_status": "not_found",
-            }), 404
+            return jsonify(
+                {
+                    "error": "この日付・入園時刻の予測データはまだありません。",
+                    "data_status": "not_found",
+                }
+            ), 404
 
         day = day_rows[0] if day_rows else {}
+
         attraction_names = {
             "beauty": "美女と野獣",
             "baymax": "ベイマックス",
@@ -145,90 +160,200 @@ def api_forecast():
         }
 
         attractions = []
+
         for row in prediction_rows:
-            attractions.append({
-                "attraction_code": row.get("attraction_code"),
-                "name": attraction_names.get(row.get("attraction_code"), row.get("attraction_code")),
-                "acquisition_probability": row.get("acquisition_probability"),
-                "predicted_sellout_time": row.get("predicted_sellout_time"),
-                "confidence_low": row.get("confidence_low"),
-                "confidence_high": row.get("confidence_high"),
-            })
+            attraction_code = row.get("attraction_code")
+
+            attractions.append(
+                {
+                    "attraction_code": attraction_code,
+                    "name": attraction_names.get(
+                        attraction_code,
+                        attraction_code,
+                    ),
+                    "acquisition_probability": row.get(
+                        "acquisition_probability"
+                    ),
+                    "predicted_sellout_time": row.get(
+                        "predicted_sellout_time"
+                    ),
+                    "confidence_low": row.get("confidence_low"),
+                    "confidence_high": row.get("confidence_high"),
+                }
+            )
 
         reasons = day.get("prediction_reasons") or []
-        return jsonify({
-            "date": target_date,
-            "entry_time": entry_time,
-            "crowd_label": day.get("crowd_label"),
-            "crowd_score": day.get("crowd_score"),
-            "weather": day.get("weather"),
-            "temperature_high": day.get("temperature_high"),
-            "temperature_low": day.get("temperature_low"),
-            "ticket_price": day.get("ticket_price"),
-            "recommended_level": day.get("recommended_level"),
-            "attractions": attractions,
-            "reasons": reasons,
-            "data_status": "live",
-        })
+
+        return jsonify(
+            {
+                "date": target_date,
+                "entry_time": entry_time,
+                "crowd_label": day.get("crowd_label"),
+                "crowd_score": day.get("crowd_score"),
+                "weather": day.get("weather"),
+                "temperature_high": day.get("temperature_high"),
+                "temperature_low": day.get("temperature_low"),
+                "ticket_price": day.get("ticket_price"),
+                "recommended_level": day.get("recommended_level"),
+                "attractions": attractions,
+                "reasons": reasons,
+                "data_status": "live",
+            }
+        )
+
     except requests.RequestException as exc:
-        return jsonify({"error": f"Supabaseの取得に失敗しました: {exc}"}), 502
+        return jsonify(
+            {
+                "error": f"Supabaseの取得に失敗しました: {exc}",
+            }
+        ), 502
 
 
 @app.get("/api/analytics")
 def api_analytics():
     if not supabase_enabled():
-        return jsonify({
-            "data_status": "demo",
-            "summary": {
-                "record_count": 0,
-                "latest_record_date": None,
-                "model_updated_at": None,
-            },
-            "weekday_stats": [],
-            "remaining_rate_stats": [],
-            "message": "Supabase接続後に分析結果が表示されます。",
-        })
+        return jsonify(
+            {
+                "data_status": "demo",
+                "summary": {
+                    "record_count": 0,
+                    "latest_record_date": None,
+                    "model_updated_at": None,
+                },
+                "weekday_stats": [],
+                "remaining_rate_stats": [],
+                "message": "Supabase接続後に分析結果が表示されます。",
+            }
+        )
 
     try:
-        summaries = supabase_get(
-            "analysis_summaries",
+        park_days = supabase_get(
+            "park_days",
             {
-                "select": "*",
-                "order": "sort_order.asc",
+                "select": (
+                    "visit_date,"
+                    "crowd_label,"
+                    "weather,"
+                    "ticket_price,"
+                    "official_open_time"
+                ),
+                "order": "visit_date.desc",
             },
         )
-        metrics = supabase_get(
-            "analysis_metrics",
+
+        record_count = len(park_days)
+
+        latest_record_date = None
+        if park_days:
+            latest_record_date = park_days[0].get("visit_date")
+
+        weekday_counts: dict[str, int] = {
+            "月": 0,
+            "火": 0,
+            "水": 0,
+            "木": 0,
+            "金": 0,
+            "土": 0,
+            "日": 0,
+        }
+
+        weekday_names = [
+            "月",
+            "火",
+            "水",
+            "木",
+            "金",
+            "土",
+            "日",
+        ]
+
+        for row in park_days:
+            visit_date = row.get("visit_date")
+
+            if not visit_date:
+                continue
+
+            try:
+                visit_dt = datetime.strptime(
+                    visit_date,
+                    "%Y-%m-%d",
+                )
+            except ValueError:
+                continue
+
+            weekday_name = weekday_names[visit_dt.weekday()]
+            weekday_counts[weekday_name] += 1
+
+        weekday_stats = [
             {
-                "select": "*",
-                "order": "metric_group.asc,sort_order.asc",
-            },
+                "weekday": weekday_name,
+                "record_count": weekday_counts[weekday_name],
+            }
+            for weekday_name in weekday_names
+        ]
+
+        return jsonify(
+            {
+                "data_status": "live",
+                "summary": {
+                    "record_count": record_count,
+                    "latest_record_date": latest_record_date,
+                    "model_updated_at": None,
+                },
+                "weekday_stats": weekday_stats,
+                "remaining_rate_stats": [],
+                "message": (
+                    "実績データを取得しました。"
+                    if record_count > 0
+                    else "実績データはまだありません。"
+                ),
+            }
         )
-        return jsonify({
-            "data_status": "live",
-            "summaries": summaries,
-            "metrics": metrics,
-        })
+
     except requests.RequestException as exc:
-        return jsonify({"error": f"分析結果の取得に失敗しました: {exc}"}), 502
+        return jsonify(
+            {
+                "error": f"分析結果の取得に失敗しました: {exc}",
+            }
+        ), 502
 
 
 @app.get("/api/database")
 def api_database():
-    page = max(int(request.args.get("page", "1")), 1)
-    page_size = min(max(int(request.args.get("page_size", "20")), 1), 100)
+    try:
+        page = max(
+            int(request.args.get("page", "1")),
+            1,
+        )
+        page_size = min(
+            max(
+                int(request.args.get("page_size", "20")),
+                1,
+            ),
+            100,
+        )
+    except ValueError:
+        return jsonify(
+            {
+                "error": "ページ番号または表示件数が正しくありません。",
+            }
+        ), 400
+
     offset = (page - 1) * page_size
+
     date_from = request.args.get("date_from", "").strip()
     date_to = request.args.get("date_to", "").strip()
 
     if not supabase_enabled():
-        return jsonify({
-            "data_status": "demo",
-            "records": [],
-            "page": page,
-            "page_size": page_size,
-            "message": "Supabase接続後に実績データが表示されます。",
-        })
+        return jsonify(
+            {
+                "data_status": "demo",
+                "records": [],
+                "page": page,
+                "page_size": page_size,
+                "message": "Supabase接続後に実績データが表示されます。",
+            }
+        )
 
     params: dict[str, Any] = {
         "select": "*",
@@ -236,29 +361,46 @@ def api_database():
         "limit": str(page_size),
         "offset": str(offset),
     }
+
+    conditions = []
+
     if date_from:
-        params["visit_date"] = f"gte.{date_from}"
+        conditions.append(f"visit_date.gte.{date_from}")
+
     if date_to:
-        # PostgRESTで同一列に複数条件を付けるためandを利用
-        current = params.pop("visit_date", None)
-        conditions = []
-        if current:
-            conditions.append(f"visit_date.{current}")
         conditions.append(f"visit_date.lte.{date_to}")
+
+    if conditions:
         params["and"] = f"({','.join(conditions)})"
 
     try:
-        records = supabase_get("dpa_history_view", params)
-        return jsonify({
-            "data_status": "live",
-            "records": records,
-            "page": page,
-            "page_size": page_size,
-        })
+        records = supabase_get(
+            "dpa_history_view",
+            params,
+        )
+
+        return jsonify(
+            {
+                "data_status": "live",
+                "records": records,
+                "page": page,
+                "page_size": page_size,
+            }
+        )
+
     except requests.RequestException as exc:
-        return jsonify({"error": f"実績データの取得に失敗しました: {exc}"}), 502
+        return jsonify(
+            {
+                "error": f"実績データの取得に失敗しました: {exc}",
+            }
+        ), 502
 
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=os.getenv("FLASK_DEBUG") == "1")
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=os.getenv("FLASK_DEBUG") == "1",
+    )
