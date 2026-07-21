@@ -1,7 +1,7 @@
 import os
 
-APP_VERSION = "6.1.0"
-APP_BUILD = "adaptive-feature-learning-v6-1"
+APP_VERSION = "6.2.0"
+APP_BUILD = "season-event-optimizer-v6-2"
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower() or "development"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")

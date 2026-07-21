@@ -8,6 +8,7 @@ from db import supabase_enabled, supabase_get
 from yosocal import fetch_official_park_info, fetch_yosocal_weather, fetch_yosocal_calendar, fetch_yosocal_full_context
 from learning import apply_learning_calibration, sync_prediction_results, save_prediction_log, build_accuracy_dashboard
 from feature_learning import build_adaptive_feature_profiles
+from season_optimizer import build_seasonal_profiles
 from prediction import (
     normalize_weather,
     crowd_score_from_label,
@@ -154,6 +155,13 @@ def api_forecast():
             learning_logs = []
         feature_learning = build_adaptive_feature_profiles(learning_logs)
         learned_profiles = feature_learning.get("profiles", {})
+        season_optimization = build_seasonal_profiles(
+            learning_logs,
+            target_date,
+            yosocal_calendar.get("yosocal_factors", []) if yosocal_calendar else [],
+            learned_profiles,
+        )
+        optimized_profiles = season_optimization.get("profiles", learned_profiles)
 
         # 混雑予測は全体向けの標準プロファイルを使う。
         generic_scored_rows = [
@@ -187,9 +195,9 @@ def api_forecast():
         attraction_similarity: dict[str, Any] = {}
 
         for code, name, sellout_field, limit_field in attraction_specs:
-            profile_name, feature_weights = get_scoring_profile(code, learned_profiles)
+            profile_name, feature_weights = get_scoring_profile(code, optimized_profiles)
             scored_rows = [
-                (row, similarity_score_details(row, target_dt, day, code, learned_profiles))
+                (row, similarity_score_details(row, target_dt, day, code, optimized_profiles))
                 for row in history_rows
             ]
             scored_rows = [
@@ -303,7 +311,7 @@ def api_forecast():
             selected_count=round(sum(int(item.get("selected_history_count") or 0) for item in attractions) / max(1, len(attractions))),
             history_count=len(history_rows),
             used_condition_count=len(used_conditions),
-            learning_applied=bool(learning.get("applied") or feature_learning.get("applied")),
+            learning_applied=bool(learning.get("applied") or feature_learning.get("applied") or season_optimization.get("applied")),
         )
         reasons.append(
             f"予測信頼度は{prediction_confidence['score']}%（{prediction_confidence['label']}）です。"
@@ -318,6 +326,8 @@ def api_forecast():
             reasons.append(f"対象日のイベント・休暇・連休など{yosocal_calendar.get('yosocal_factor_count', 0)}件、休止施設{yosocal_calendar.get('yosocal_closure_count', 0)}件を取得しました。")
         if learning.get("applied"):
             reasons.append(f"過去の予測と実績から、評価件数に応じた段階式の誤差補正を適用しました。")
+        if season_optimization.get("applied"):
+            reasons.append(f"{season_optimization.get('target_segment_label')}専用の評価実績から季節・イベント最適化を適用しました。")
 
         if yosocal_weather:
             reasons.append(
@@ -369,7 +379,7 @@ def api_forecast():
                 "attractions": attractions,
                 "reasons": reasons,
                 "data_status": "live",
-                "prediction_method": "adaptive_feature_learning_v6_1",
+                "prediction_method": "season_event_optimizer_v6_2",
                 "history_count": len(history_rows),
                 "sample_count": len(generic_selected_rows),
                 "similar_days": similar_days,
@@ -414,6 +424,7 @@ def api_forecast():
                 "yosocal_ticket_price_estimate": yosocal_calendar.get("yosocal_ticket_price_estimate") if yosocal_calendar else None,
                 "learning": learning,
                 "feature_learning": feature_learning,
+                "season_optimization": season_optimization,
                 "prediction_confidence": prediction_confidence,
                 "source_diagnostics": {
                     "official_calendar": {
