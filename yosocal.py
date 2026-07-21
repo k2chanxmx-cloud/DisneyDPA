@@ -6,39 +6,10 @@ from typing import Any
 import requests
 from config import REQUEST_TIMEOUT, YOSOCAL_URL, YOSOCAL_CACHE_SECONDS, OFFICIAL_CACHE_SECONDS
 from utils import time_to_minutes
+from constants import YOSOCAL_EVENT_TYPE_LABELS
 _yosocal_cache: dict[str, tuple[float, dict[str, Any] | None]] = {}
 _yosocal_calendar_cache: dict[str, tuple[float, dict[str, Any] | None]] = {}
 _official_calendar_cache: dict[str, tuple[float, dict[str, Any] | None]] = {}
-
-YOSOCAL_EVENT_TYPE_LABELS = {
-    "1": "祝日",
-    "2": "連休",
-    "3": "学校休み",
-    "4": "キャンパスデー",
-    "5": "混雑注意日",
-    "19": "学生休暇",
-    "20": "学生休暇",
-    "21": "学生休暇",
-    "22": "学生休暇",
-    "23": "学生休暇",
-    "24": "学生休暇",
-    "25": "学生休暇",
-    "26": "ランドイベント",
-    "27": "ランドイベント",
-    "28": "ランドイベント",
-    "29": "ランドイベント",
-    "30": "ランドイベント",
-    "31": "ランドイベント",
-    "32": "ランドイベント",
-    "33": "ランドイベント",
-    "34": "ランドイベント",
-    "35": "ランドイベント",
-    "36": "シーイベント",
-    "37": "シーイベント",
-    "38": "シーイベント",
-    "39": "シーイベント",
-    "40": "シーイベント",
-}
 
 def _decode_yosocal_response(response: requests.Response) -> str:
     """YosocalのShift_JIS系レスポンスを文字化けせずに読み込む。"""
@@ -404,7 +375,7 @@ def fetch_yosocal_full_context(target_dt: datetime) -> dict[str, Any]:
             continue
         if row[1] <= target_key <= row[2]:
             adjustment = _to_float(row[3])
-            name = row[4] or YOSOCAL_EVENT_TYPE_LABELS.get(row[0], "名称未登録")
+            name = _plain_text_from_html(row[4]) or YOSOCAL_EVENT_TYPE_LABELS.get(row[0], "名称未登録")
             factors.append({
                 "type_code": row[0],
                 "type_label": YOSOCAL_EVENT_TYPE_LABELS.get(row[0], "その他"),
@@ -424,7 +395,7 @@ def fetch_yosocal_full_context(target_dt: datetime) -> dict[str, Any]:
         if row[1] <= target_key <= row[2]:
             closures.append({
                 "park": "tdl" if row[0] == "0" else "tds" if row[0] == "1" else "unknown",
-                "name": row[3],
+                "name": _plain_text_from_html(row[3]),
                 "start_date": f"{row[1][:4]}-{row[1][4:6]}-{row[1][6:8]}",
                 "end_date": f"{row[2][:4]}-{row[2][4:6]}-{row[2][6:8]}",
                 "extra_fields": row[4:],

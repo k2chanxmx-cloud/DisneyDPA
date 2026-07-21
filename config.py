@@ -1,7 +1,7 @@
 import os
 
-APP_VERSION = "4.0.0"
-APP_BUILD = "modular-yosocal-learning"
+APP_VERSION = "4.1.0"
+APP_BUILD = "modular-constants-resilient-errors"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")

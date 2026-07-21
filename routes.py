@@ -3,6 +3,7 @@ from typing import Any
 from flask import Blueprint, jsonify, render_template, request
 import requests
 from config import APP_VERSION, APP_BUILD
+from constants import ATTRACTION_SPECS, WEEKDAY_NAMES
 from db import supabase_enabled, supabase_get
 from yosocal import fetch_official_park_info, fetch_yosocal_weather, fetch_yosocal_calendar, fetch_yosocal_full_context
 from learning import apply_learning_calibration, sync_prediction_results, save_prediction_log
@@ -62,8 +63,8 @@ def api_forecast():
         official_error = None
         try:
             official_info = fetch_official_park_info(target_dt, "tdl")
-        except requests.RequestException as exc:
-            official_error = str(exc)
+        except Exception as exc:
+            official_error = f"{type(exc).__name__}: {exc}"
         if official_info:
             day = {
                 **day,
@@ -76,8 +77,8 @@ def api_forecast():
         yosocal_calendar_error = None
         try:
             yosocal_calendar = fetch_yosocal_full_context(target_dt)
-        except requests.RequestException as exc:
-            yosocal_calendar_error = str(exc)
+        except Exception as exc:
+            yosocal_calendar_error = f"{type(exc).__name__}: {exc}"
         if yosocal_calendar and not day.get("official_open_time"):
             day["official_open_time"] = yosocal_calendar.get("yosocal_open_time")
             day["official_close_time"] = yosocal_calendar.get("yosocal_close_time")
@@ -90,8 +91,8 @@ def api_forecast():
         yosocal_error = None
         try:
             yosocal_weather = fetch_yosocal_weather(target_dt)
-        except requests.RequestException as exc:
-            yosocal_error = str(exc)
+        except Exception as exc:
+            yosocal_error = f"{type(exc).__name__}: {exc}"
 
         if yosocal_weather:
             day = {
@@ -141,26 +142,7 @@ def api_forecast():
 
         entry_minutes = entry_dt.hour * 60 + entry_dt.minute
 
-        attraction_specs = [
-            (
-                "beauty",
-                "美女と野獣",
-                "beauty_sellout_time",
-                "beauty_is_limit",
-            ),
-            (
-                "baymax",
-                "ベイマックス",
-                "baymax_sellout_time",
-                "baymax_is_limit",
-            ),
-            (
-                "splash",
-                "スプラッシュ・マウンテン",
-                "splash_sellout_time",
-                "splash_is_limit",
-            ),
-        ]
+        attraction_specs = ATTRACTION_SPECS
 
         attractions = [
             build_attraction_prediction(
@@ -182,7 +164,7 @@ def api_forecast():
             learning_logs = supabase_get("prediction_logs", {
                 "select": "*", "evaluated_at": "not.is.null", "order": "target_date.desc", "limit": "200"
             })
-        except requests.RequestException:
+        except Exception:
             learning_logs = []
         learning = apply_learning_calibration(attractions, learning_logs)
         learning["newly_evaluated_count"] = evaluated_synced
@@ -223,8 +205,7 @@ def api_forecast():
         else:
             recommended_level = 1
 
-        weekday_names = ["月", "火", "水", "木", "金", "土", "日"]
-        weekday_name = weekday_names[target_dt.weekday()]
+        weekday_name = WEEKDAY_NAMES[target_dt.weekday()]
 
         reasons = [
             f"登録済み実績{len(history_rows)}件から、条件が近い上位{len(selected_rows)}件を使って予測しました。",
@@ -367,16 +348,26 @@ def api_forecast():
         try:
             save_prediction_log(payload)
             payload["prediction_saved"] = True
-        except requests.RequestException:
+        except Exception as exc:
             payload["prediction_saved"] = False
+            payload["prediction_save_error"] = f"{type(exc).__name__}: {exc}"
         return jsonify(payload)
 
     except requests.RequestException as exc:
-        return jsonify(
-            {
-                "error": f"Supabaseの取得に失敗しました: {exc}",
-            }
-        ), 502
+        return jsonify({
+            "version": APP_VERSION,
+            "build": APP_BUILD,
+            "error": f"Supabaseの取得に失敗しました: {exc}",
+            "error_type": type(exc).__name__,
+        }), 502
+    except Exception as exc:
+        return jsonify({
+            "version": APP_VERSION,
+            "build": APP_BUILD,
+            "error": "予測処理で予期しないエラーが発生しました。",
+            "error_type": type(exc).__name__,
+            "error_detail": str(exc),
+        }), 500
 
 @bp.get("/api/analytics")
 def api_analytics():
