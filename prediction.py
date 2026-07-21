@@ -107,62 +107,121 @@ def _date_profile(value: datetime) -> dict[str, Any]:
     }
 
 
+FEATURE_WEIGHTS: dict[str, dict[str, float]] = {
+    "default_v5": {
+        "weekday": 30.0,
+        "school_break": 15.0,
+        "season_event": 15.0,
+        "weather": 10.0,
+        "temperature": 10.0,
+        "open_time": 8.0,
+        "ticket_price": 7.0,
+        "recency": 5.0,
+    },
+    "beauty_v1": {
+        "weekday": 27.0,
+        "school_break": 18.0,
+        "season_event": 20.0,
+        "weather": 5.0,
+        "temperature": 5.0,
+        "open_time": 10.0,
+        "ticket_price": 10.0,
+        "recency": 5.0,
+    },
+    "baymax_v1": {
+        "weekday": 24.0,
+        "school_break": 20.0,
+        "season_event": 13.0,
+        "weather": 8.0,
+        "temperature": 18.0,
+        "open_time": 7.0,
+        "ticket_price": 5.0,
+        "recency": 5.0,
+    },
+    "splash_v1": {
+        "weekday": 15.0,
+        "school_break": 12.0,
+        "season_event": 18.0,
+        "weather": 15.0,
+        "temperature": 25.0,
+        "open_time": 5.0,
+        "ticket_price": 5.0,
+        "recency": 5.0,
+    },
+}
+
+ATTRACTION_SCORING_PROFILES = {
+    "beauty": "beauty_v1",
+    "baymax": "baymax_v1",
+    "splash": "splash_v1",
+}
+
+SIMILARITY_THRESHOLDS = (80.0, 75.0, 70.0)
+MIN_SELECTED_HISTORY = 50
+MAX_SELECTED_HISTORY = 120
+
+
+def get_scoring_profile(attraction_code: str | None = None) -> tuple[str, dict[str, float]]:
+    profile_name = ATTRACTION_SCORING_PROFILES.get(
+        str(attraction_code or "").strip(),
+        "default_v5",
+    )
+    return profile_name, FEATURE_WEIGHTS[profile_name]
+
+
 def similarity_score_details(
     row: dict[str, Any],
     target_dt: datetime,
     day_info: dict[str, Any],
+    attraction_code: str | None = None,
 ) -> dict[str, Any]:
-    """Ver5の100点式類似度スコアと内訳を返す。"""
+    """Ver5.0.2のアトラクション別100点式類似度と内訳を返す。"""
     visit_date = row.get("visit_date")
+    profile_name, weights = get_scoring_profile(attraction_code)
     if not visit_date:
-        return {"score": 0.0, "components": {}, "visit_date": None}
+        return {"score": 0.0, "components": {}, "visit_date": None, "profile": profile_name}
 
     try:
         history_dt = datetime.strptime(str(visit_date), "%Y-%m-%d")
     except ValueError:
-        return {"score": 0.0, "components": {}, "visit_date": str(visit_date)}
+        return {"score": 0.0, "components": {}, "visit_date": str(visit_date), "profile": profile_name}
 
     target_profile = _date_profile(target_dt)
     history_profile = _date_profile(history_dt)
-    components: dict[str, float] = {}
+    ratios: dict[str, float] = {}
 
-    # 1. 曜日・平休日（最大30点）
     if history_profile["weekday"] == target_profile["weekday"]:
-        components["weekday"] = 30.0
+        ratios["weekday"] = 1.0
     elif history_profile["is_weekend"] == target_profile["is_weekend"]:
-        components["weekday"] = 18.0
+        ratios["weekday"] = 0.6
     else:
-        components["weekday"] = 5.0
+        ratios["weekday"] = 1.0 / 6.0
 
-    # 2. 学校休暇傾向（最大15点）
     if history_profile["school_break"] == target_profile["school_break"]:
-        components["school_break"] = 15.0
+        ratios["school_break"] = 1.0
     elif "none" in (history_profile["school_break"], target_profile["school_break"]):
-        components["school_break"] = 4.0
+        ratios["school_break"] = 4.0 / 15.0
     else:
-        components["school_break"] = 8.0
+        ratios["school_break"] = 8.0 / 15.0
 
-    # 3. 季節・イベント期（最大15点）
-    event_score = 0.0
+    event_ratio = 0.0
     if history_profile["event_season"] == target_profile["event_season"]:
-        event_score += 9.0
+        event_ratio += 0.6
     elif "normal" in (history_profile["event_season"], target_profile["event_season"]):
-        event_score += 2.0
+        event_ratio += 2.0 / 15.0
     if history_profile["season"] == target_profile["season"]:
-        event_score += 6.0
+        event_ratio += 0.4
     elif abs(history_dt.month - target_dt.month) in (1, 11):
-        event_score += 3.0
-    components["season_event"] = min(15.0, event_score)
+        event_ratio += 0.2
+    ratios["season_event"] = min(1.0, event_ratio)
 
-    # 4. 天気（最大10点）
     target_weather = normalize_weather(day_info.get("weather"))
     history_weather = normalize_weather(row.get("weather"))
     if target_weather and history_weather:
-        components["weather"] = 10.0 if target_weather == history_weather else 2.0
+        ratios["weather"] = 1.0 if target_weather == history_weather else 0.2
     else:
-        components["weather"] = 5.0
+        ratios["weather"] = 0.5
 
-    # 5. 気温（最大10点）
     target_high = _safe_float(day_info.get("temperature_high"))
     history_high = _safe_float(row.get("temperature_high"))
     target_low = _safe_float(day_info.get("temperature_low"))
@@ -174,39 +233,66 @@ def similarity_score_details(
         temperature_diffs.append(abs(target_low - history_low))
     if temperature_diffs:
         avg_diff = sum(temperature_diffs) / len(temperature_diffs)
-        components["temperature"] = max(0.0, 10.0 - avg_diff * 1.25)
+        ratios["temperature"] = max(0.0, 1.0 - avg_diff / 8.0)
     else:
-        components["temperature"] = 5.0
+        ratios["temperature"] = 0.5
 
-    # 6. 開園時刻（最大8点）
     target_open = time_to_minutes(day_info.get("official_open_time"))
     history_open = time_to_minutes(row.get("official_open_time"))
     if target_open is not None and history_open is not None:
-        open_diff = abs(target_open - history_open)
-        components["open_time"] = max(0.0, 8.0 - open_diff / 15.0)
+        ratios["open_time"] = max(0.0, 1.0 - abs(target_open - history_open) / 120.0)
     else:
-        components["open_time"] = 4.0
+        ratios["open_time"] = 0.5
 
-    # 7. チケット価格（最大7点）
     target_price = _safe_float(day_info.get("ticket_price"))
     history_price = _safe_float(row.get("ticket_price"))
     if target_price is not None and history_price is not None:
-        price_diff = abs(target_price - history_price)
-        components["ticket_price"] = max(0.0, 7.0 - price_diff / 500.0)
+        ratios["ticket_price"] = max(0.0, 1.0 - abs(target_price - history_price) / 3500.0)
     else:
-        components["ticket_price"] = 3.5
+        ratios["ticket_price"] = 0.5
 
-    # 8. データ鮮度（最大5点）
     age_days = abs((target_dt.date() - history_dt.date()).days)
-    components["recency"] = max(0.5, 5.0 - age_days / 730.0)
+    ratios["recency"] = max(0.1, 1.0 - age_days / 3650.0)
 
+    components = {
+        key: weights[key] * max(0.0, min(1.0, ratios.get(key, 0.0)))
+        for key in weights
+    }
     score = max(0.01, min(100.0, sum(components.values())))
     return {
         "visit_date": history_dt.date().isoformat(),
         "score": round(score, 2),
+        "profile": profile_name,
         "components": {key: round(value, 2) for key, value in components.items()},
     }
 
+
+def select_similar_rows(
+    scored_rows: list[tuple[dict[str, Any], dict[str, Any]]],
+    minimum_count: int = MIN_SELECTED_HISTORY,
+    maximum_count: int = MAX_SELECTED_HISTORY,
+) -> tuple[list[tuple[dict[str, Any], float]], float | None, str]:
+    """高スコアを優先し、不足時だけ基準を段階的に緩和する。"""
+    ordered = sorted(
+        scored_rows,
+        key=lambda item: float(item[1].get("score") or 0),
+        reverse=True,
+    )
+    for threshold in SIMILARITY_THRESHOLDS:
+        candidates = [
+            (row, float(details["score"]))
+            for row, details in ordered
+            if float(details.get("score") or 0) >= threshold
+        ]
+        if len(candidates) >= minimum_count:
+            return candidates[:maximum_count], threshold, "threshold"
+
+    fallback = [
+        (row, float(details["score"]))
+        for row, details in ordered[:minimum_count]
+    ]
+    cutoff = fallback[-1][1] if fallback else None
+    return fallback, cutoff, "minimum_count_fallback"
 
 def similarity_weight(
     row: dict[str, Any],
@@ -224,6 +310,10 @@ def build_attraction_prediction(
     name: str,
     sellout_field: str,
     limit_field: str,
+    scoring_profile: str | None = None,
+    minimum_similarity_score: float | None = None,
+    selection_mode: str | None = None,
+    feature_weights: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     availability_values: list[tuple[float, float]] = []
     sellout_values: list[tuple[float, float]] = []
@@ -282,6 +372,11 @@ def build_attraction_prediction(
         "confidence_low": minutes_to_time(confidence_low),
         "confidence_high": high_text,
         "sample_count": len(availability_values),
+        "selected_history_count": len(weighted_rows),
+        "scoring_profile": scoring_profile,
+        "minimum_similarity_score": round(minimum_similarity_score, 2) if minimum_similarity_score is not None else None,
+        "selection_mode": selection_mode,
+        "feature_weights": feature_weights or {},
     }
 
 def calculate_prediction_confidence(

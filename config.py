@@ -1,7 +1,7 @@
 import os
 
-APP_VERSION = "5.0.1"
-APP_BUILD = "feature-scoring-engine-v5"
+APP_VERSION = "5.0.2"
+APP_BUILD = "attraction-scoring-engine-v5-0-2"
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower() or "development"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
