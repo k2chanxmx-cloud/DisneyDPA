@@ -6,58 +6,419 @@
   <meta name="theme-color" content="#4f46e5">
   <title>予測精度ダッシュボード</title>
   <style>
-    :root{font-family:Inter,"Noto Sans JP",system-ui,sans-serif;color:#1f2937;background:#f5f7fb}
-    *{box-sizing:border-box}body{margin:0}.wrap{max-width:1180px;margin:auto;padding:28px 18px 60px}
-    header{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;margin-bottom:22px}h1{margin:4px 0 0;font-size:clamp(28px,5vw,44px)}
-    .eyebrow{margin:0;color:#6366f1;font-weight:800;letter-spacing:.14em;font-size:12px}.lead{color:#6b7280;margin:8px 0 0}.back{color:#4f46e5;text-decoration:none;font-weight:700}
-    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:20px;box-shadow:0 8px 28px rgba(31,41,55,.05)}
-    .metric span{display:block;color:#6b7280;font-size:13px}.metric strong{display:block;font-size:30px;margin-top:8px}.metric small{color:#9ca3af}
-    section{margin-top:16px}h2{margin:0 0 16px;font-size:20px}.attractions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-    .name{font-size:18px;font-weight:800;margin-bottom:16px}.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}.stat{background:#f8fafc;border-radius:12px;padding:12px}.stat span{display:block;color:#6b7280;font-size:12px}.stat strong{font-size:20px}
-    table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:11px 8px;border-bottom:1px solid #eef0f4;white-space:nowrap}th{color:#6b7280;font-size:12px}.table-wrap{overflow:auto}
-    .positive{color:#b45309}.negative{color:#2563eb}.empty{padding:30px;text-align:center;color:#6b7280}.status{padding:8px 12px;border-radius:999px;background:#eef2ff;color:#4338ca;font-size:13px;font-weight:700}
-    @media(max-width:850px){.grid{grid-template-columns:1fr 1fr}.attractions{grid-template-columns:1fr}header{align-items:flex-start;flex-direction:column}}@media(max-width:500px){.grid{grid-template-columns:1fr}}
+    :root {
+      font-family: Inter, "Noto Sans JP", system-ui, sans-serif;
+      color: #1f2937;
+      background: #f5f4ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top right, rgba(157, 140, 255, 0.22), transparent 34%),
+        radial-gradient(circle at bottom left, rgba(255, 209, 232, 0.25), transparent 32%),
+        #f5f4ff;
+    }
+
+    .wrap {
+      max-width: 1180px;
+      margin: auto;
+      padding: 28px 18px 60px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 18px;
+      margin-bottom: 22px;
+    }
+
+    h1 {
+      margin: 4px 0 0;
+      font-size: clamp(28px, 5vw, 44px);
+    }
+
+    .eyebrow {
+      margin: 0;
+      color: #6366f1;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      font-size: 12px;
+    }
+
+    .lead {
+      color: #6b7280;
+      margin: 8px 0 0;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .back {
+      color: #4f46e5;
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 8px 28px rgba(31, 41, 55, 0.05);
+      backdrop-filter: blur(10px);
+    }
+
+    .metric {
+      min-height: 126px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .metric span {
+      display: block;
+      color: #6b7280;
+      font-size: 13px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 30px;
+      margin-top: 8px;
+      line-height: 1.2;
+    }
+
+    .metric small {
+      color: #9ca3af;
+      margin-top: 4px;
+    }
+
+    section {
+      margin-top: 16px;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      font-size: 20px;
+    }
+
+    .attractions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .name {
+      font-size: 18px;
+      font-weight: 800;
+      margin-bottom: 16px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .stat {
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 12px;
+    }
+
+    .stat span {
+      display: block;
+      color: #6b7280;
+      font-size: 12px;
+    }
+
+    .stat strong {
+      font-size: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 11px 8px;
+      border-bottom: 1px solid #eef0f4;
+      white-space: nowrap;
+    }
+
+    th {
+      color: #6b7280;
+      font-size: 12px;
+    }
+
+    .table-wrap {
+      overflow: auto;
+    }
+
+    .positive {
+      color: #b45309;
+    }
+
+    .negative {
+      color: #2563eb;
+    }
+
+    .empty {
+      padding: 30px;
+      text-align: center;
+      color: #6b7280;
+    }
+
+    .status {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #4338ca;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 850px) {
+      .attractions {
+        grid-template-columns: 1fr;
+      }
+
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+
+    @media (max-width: 500px) {
+      .wrap {
+        padding: 22px 10px 48px;
+      }
+
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .metric {
+        min-height: 112px;
+        padding: 14px 12px;
+      }
+
+      .metric strong {
+        font-size: 23px;
+      }
+
+      .metric small {
+        font-size: 11px;
+      }
+
+      .card {
+        border-radius: 16px;
+      }
+
+      .stats {
+        gap: 8px;
+      }
+
+      .stat {
+        padding: 10px;
+      }
+
+      .stat strong {
+        font-size: 18px;
+      }
+    }
   </style>
 </head>
 <body>
-<main class="wrap">
-  <header><div><p class="eyebrow">MODEL QUALITY REPORT</p><h1>予測精度ダッシュボード</h1><p class="lead">予測と実績の差を集計し、モデルの得意・不得意を確認します。</p></div><div><a class="back" href="/">← 予測画面へ</a><span id="status" class="status">読み込み中</span></div></header>
-  <div class="grid">
-    <article class="card metric"><span>評価済み予測日</span><strong id="days">-</strong><small>prediction logs</small></article>
-    <article class="card metric"><span>平均絶対誤差</span><strong id="mae">-</strong><small>小さいほど正確</small></article>
-    <article class="card metric"><span>30分以内的中率</span><strong id="within30">-</strong><small>売切れ時刻</small></article>
-    <article class="card metric"><span>平均バイアス</span><strong id="bias">-</strong><small>＋は実績が予測より遅い</small></article>
-  </div>
-  <section class="card"><h2>アトラクション別</h2><div id="attractions" class="attractions"></div></section>
-  <section class="card"><h2>最近の予測と実績</h2><div id="recent" class="table-wrap"></div></section>
-</main>
-<script>
-const text=(v,suffix='')=>v===null||v===undefined?'-':`${v}${suffix}`;
-const errorClass=v=>v>0?'positive':v<0?'negative':'';
-async function load(){
-  const status=document.getElementById('status');
-  try{
-    const r=await fetch('/api/accuracy'); const d=await r.json();
-    if(!r.ok) throw new Error(d.error||'取得失敗');
-    status.textContent=`Ver ${d.version}`;
-    const s=d.summary||{};
-    days.textContent=text(s.evaluated_prediction_count,'日');
-    mae.textContent=text(s.mean_absolute_error_minutes,'分');
-    within30.textContent=text(s.within_30_minutes_rate,'%');
-    bias.textContent=text(s.bias_minutes,'分'); bias.className=errorClass(s.bias_minutes||0);
-    const cards=(d.attractions||[]).map(a=>`<article class="card"><div class="name">${a.name}</div><div class="stats">
-      <div class="stat"><span>評価件数</span><strong>${text(a.evaluated_count,'件')}</strong></div>
-      <div class="stat"><span>平均絶対誤差</span><strong>${text(a.mean_absolute_error_minutes,'分')}</strong></div>
-      <div class="stat"><span>30分以内</span><strong>${text(a.within_30_minutes_rate,'%')}</strong></div>
-      <div class="stat"><span>バイアス</span><strong class="${errorClass(a.bias_minutes||0)}">${text(a.bias_minutes,'分')}</strong></div>
-      <div class="stat"><span>取得可否の正解率</span><strong>${text(a.availability_accuracy_rate,'%')}</strong></div>
-      <div class="stat"><span>Brier Score</span><strong>${text(a.brier_score)}</strong></div>
-    </div></article>`).join('');
-    attractions.innerHTML=cards||`<div class="empty">${d.message}</div>`;
-    const rows=d.recent_evaluations||[];
-    recent.innerHTML=rows.length?`<table><thead><tr><th>日付</th><th>アトラクション</th><th>予測</th><th>実績</th><th>誤差</th><th>取得予測率</th><th>実際</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${x.target_date||'-'}</td><td>${x.name}</td><td>${x.predicted_sellout_time||'-'}</td><td>${x.actual_sellout_time||'-'}</td><td class="${errorClass(x.error_minutes||0)}">${text(x.error_minutes,'分')}</td><td>${text(x.predicted_probability,'%')}</td><td>${x.actual_available===null||x.actual_available===undefined?'-':x.actual_available?'取得可能':'取得不可'}</td></tr>`).join('')}</tbody></table>`:`<div class="empty">${d.message}</div>`;
-  }catch(e){status.textContent='エラー';recent.innerHTML=`<div class="empty">${e.message}</div>`}
-}
-load();
-</script>
-</body></html>
+  <main class="wrap">
+    <header>
+      <div>
+        <p class="eyebrow">MODEL QUALITY REPORT</p>
+        <h1>予測精度ダッシュボード</h1>
+        <p class="lead">予測と実績の差を集計し、モデルの得意・不得意を確認します。</p>
+      </div>
+      <div class="header-actions">
+        <a class="back" href="/">← 予測画面へ</a>
+        <span id="status" class="status">読み込み中</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <article class="card metric">
+        <span>評価済み予測日</span>
+        <strong id="days">-</strong>
+        <small>prediction logs</small>
+      </article>
+
+      <article class="card metric">
+        <span>平均絶対誤差</span>
+        <strong id="mae">-</strong>
+        <small>小さいほど正確</small>
+      </article>
+
+      <article class="card metric">
+        <span>30分以内的中率</span>
+        <strong id="within30">-</strong>
+        <small>売切れ時刻</small>
+      </article>
+
+      <article class="card metric">
+        <span>平均バイアス</span>
+        <strong id="bias">-</strong>
+        <small>＋は実績が予測より遅い</small>
+      </article>
+    </div>
+
+    <section class="card">
+      <h2>アトラクション別</h2>
+      <div id="attractions" class="attractions"></div>
+    </section>
+
+    <section class="card">
+      <h2>最近の予測と実績</h2>
+      <div id="recent" class="table-wrap"></div>
+    </section>
+  </main>
+
+  <script>
+    const text = (value, suffix = "") =>
+      value === null || value === undefined ? "-" : `${value}${suffix}`;
+
+    const errorClass = value =>
+      value > 0 ? "positive" : value < 0 ? "negative" : "";
+
+    async function load() {
+      const status = document.getElementById("status");
+      const days = document.getElementById("days");
+      const mae = document.getElementById("mae");
+      const within30 = document.getElementById("within30");
+      const bias = document.getElementById("bias");
+      const attractions = document.getElementById("attractions");
+      const recent = document.getElementById("recent");
+
+      try {
+        const response = await fetch("/api/accuracy");
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "取得失敗");
+        }
+
+        status.textContent = `Ver ${data.version}`;
+
+        const summary = data.summary || {};
+        days.textContent = text(summary.evaluated_prediction_count, "日");
+        mae.textContent = text(summary.mean_absolute_error_minutes, "分");
+        within30.textContent = text(summary.within_30_minutes_rate, "%");
+        bias.textContent = text(summary.bias_minutes, "分");
+        bias.className = errorClass(summary.bias_minutes || 0);
+
+        const cards = (data.attractions || []).map(attraction => `
+          <article class="card">
+            <div class="name">${attraction.name}</div>
+            <div class="stats">
+              <div class="stat">
+                <span>評価件数</span>
+                <strong>${text(attraction.evaluated_count, "件")}</strong>
+              </div>
+              <div class="stat">
+                <span>平均絶対誤差</span>
+                <strong>${text(attraction.mean_absolute_error_minutes, "分")}</strong>
+              </div>
+              <div class="stat">
+                <span>30分以内</span>
+                <strong>${text(attraction.within_30_minutes_rate, "%")}</strong>
+              </div>
+              <div class="stat">
+                <span>バイアス</span>
+                <strong class="${errorClass(attraction.bias_minutes || 0)}">
+                  ${text(attraction.bias_minutes, "分")}
+                </strong>
+              </div>
+              <div class="stat">
+                <span>取得可否の正解率</span>
+                <strong>${text(attraction.availability_accuracy_rate, "%")}</strong>
+              </div>
+              <div class="stat">
+                <span>Brier Score</span>
+                <strong>${text(attraction.brier_score)}</strong>
+              </div>
+            </div>
+          </article>
+        `).join("");
+
+        attractions.innerHTML = cards || `<div class="empty">${data.message || "評価データがありません。"}</div>`;
+
+        const rows = data.recent_evaluations || [];
+        recent.innerHTML = rows.length
+          ? `
+            <table>
+              <thead>
+                <tr>
+                  <th>日付</th>
+                  <th>アトラクション</th>
+                  <th>予測</th>
+                  <th>実績</th>
+                  <th>誤差</th>
+                  <th>取得予測率</th>
+                  <th>実際</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.map(item => `
+                  <tr>
+                    <td>${item.target_date || "-"}</td>
+                    <td>${item.name || "-"}</td>
+                    <td>${item.predicted_sellout_time || "-"}</td>
+                    <td>${item.actual_sellout_time || "-"}</td>
+                    <td class="${errorClass(item.error_minutes || 0)}">
+                      ${text(item.error_minutes, "分")}
+                    </td>
+                    <td>${text(item.predicted_probability, "%")}</td>
+                    <td>
+                      ${
+                        item.actual_available === null || item.actual_available === undefined
+                          ? "-"
+                          : item.actual_available
+                            ? "取得可能"
+                            : "取得不可"
+                      }
+                    </td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          `
+          : `<div class="empty">${data.message || "評価データがありません。"}</div>`;
+      } catch (error) {
+        status.textContent = "エラー";
+        recent.innerHTML = `<div class="empty">${error.message}</div>`;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>
