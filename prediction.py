@@ -57,55 +57,164 @@ def crowd_label_from_score(score: float | None) -> str:
         return "混雑"
     return "非常に混雑"
 
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None and str(value).strip() != "" else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _date_profile(value: datetime) -> dict[str, Any]:
+    """日付だけから安定して判定できる季節・休暇プロフィールを返す。"""
+    month = value.month
+    day = value.day
+    is_weekend = value.weekday() >= 5
+
+    if month in (12, 1, 2):
+        season = "winter"
+    elif month in (3, 4, 5):
+        season = "spring"
+    elif month in (6, 7, 8):
+        season = "summer"
+    else:
+        season = "autumn"
+
+    # 全国で完全には一致しないため、学校休暇は「傾向」としてのみ使う。
+    school_break = "none"
+    if (month == 7 and day >= 20) or month == 8:
+        school_break = "summer"
+    elif (month == 12 and day >= 24) or (month == 1 and day <= 7):
+        school_break = "winter"
+    elif (month == 3 and day >= 20) or (month == 4 and day <= 7):
+        school_break = "spring"
+
+    event_season = "normal"
+    if month == 10:
+        event_season = "halloween"
+    elif month == 12:
+        event_season = "christmas"
+    elif month == 1 and day <= 7:
+        event_season = "new_year"
+    elif (month == 4 and day >= 29) or (month == 5 and day <= 6):
+        event_season = "golden_week"
+
+    return {
+        "weekday": value.weekday(),
+        "is_weekend": is_weekend,
+        "season": season,
+        "school_break": school_break,
+        "event_season": event_season,
+    }
+
+
+def similarity_score_details(
+    row: dict[str, Any],
+    target_dt: datetime,
+    day_info: dict[str, Any],
+) -> dict[str, Any]:
+    """Ver5の100点式類似度スコアと内訳を返す。"""
+    visit_date = row.get("visit_date")
+    if not visit_date:
+        return {"score": 0.0, "components": {}, "visit_date": None}
+
+    try:
+        history_dt = datetime.strptime(str(visit_date), "%Y-%m-%d")
+    except ValueError:
+        return {"score": 0.0, "components": {}, "visit_date": str(visit_date)}
+
+    target_profile = _date_profile(target_dt)
+    history_profile = _date_profile(history_dt)
+    components: dict[str, float] = {}
+
+    # 1. 曜日・平休日（最大30点）
+    if history_profile["weekday"] == target_profile["weekday"]:
+        components["weekday"] = 30.0
+    elif history_profile["is_weekend"] == target_profile["is_weekend"]:
+        components["weekday"] = 18.0
+    else:
+        components["weekday"] = 5.0
+
+    # 2. 学校休暇傾向（最大15点）
+    if history_profile["school_break"] == target_profile["school_break"]:
+        components["school_break"] = 15.0
+    elif "none" in (history_profile["school_break"], target_profile["school_break"]):
+        components["school_break"] = 4.0
+    else:
+        components["school_break"] = 8.0
+
+    # 3. 季節・イベント期（最大15点）
+    event_score = 0.0
+    if history_profile["event_season"] == target_profile["event_season"]:
+        event_score += 9.0
+    elif "normal" in (history_profile["event_season"], target_profile["event_season"]):
+        event_score += 2.0
+    if history_profile["season"] == target_profile["season"]:
+        event_score += 6.0
+    elif abs(history_dt.month - target_dt.month) in (1, 11):
+        event_score += 3.0
+    components["season_event"] = min(15.0, event_score)
+
+    # 4. 天気（最大10点）
+    target_weather = normalize_weather(day_info.get("weather"))
+    history_weather = normalize_weather(row.get("weather"))
+    if target_weather and history_weather:
+        components["weather"] = 10.0 if target_weather == history_weather else 2.0
+    else:
+        components["weather"] = 5.0
+
+    # 5. 気温（最大10点）
+    target_high = _safe_float(day_info.get("temperature_high"))
+    history_high = _safe_float(row.get("temperature_high"))
+    target_low = _safe_float(day_info.get("temperature_low"))
+    history_low = _safe_float(row.get("temperature_low"))
+    temperature_diffs = []
+    if target_high is not None and history_high is not None:
+        temperature_diffs.append(abs(target_high - history_high))
+    if target_low is not None and history_low is not None:
+        temperature_diffs.append(abs(target_low - history_low))
+    if temperature_diffs:
+        avg_diff = sum(temperature_diffs) / len(temperature_diffs)
+        components["temperature"] = max(0.0, 10.0 - avg_diff * 1.25)
+    else:
+        components["temperature"] = 5.0
+
+    # 6. 開園時刻（最大8点）
+    target_open = time_to_minutes(day_info.get("official_open_time"))
+    history_open = time_to_minutes(row.get("official_open_time"))
+    if target_open is not None and history_open is not None:
+        open_diff = abs(target_open - history_open)
+        components["open_time"] = max(0.0, 8.0 - open_diff / 15.0)
+    else:
+        components["open_time"] = 4.0
+
+    # 7. チケット価格（最大7点）
+    target_price = _safe_float(day_info.get("ticket_price"))
+    history_price = _safe_float(row.get("ticket_price"))
+    if target_price is not None and history_price is not None:
+        price_diff = abs(target_price - history_price)
+        components["ticket_price"] = max(0.0, 7.0 - price_diff / 500.0)
+    else:
+        components["ticket_price"] = 3.5
+
+    # 8. データ鮮度（最大5点）
+    age_days = abs((target_dt.date() - history_dt.date()).days)
+    components["recency"] = max(0.5, 5.0 - age_days / 730.0)
+
+    score = max(0.01, min(100.0, sum(components.values())))
+    return {
+        "visit_date": history_dt.date().isoformat(),
+        "score": round(score, 2),
+        "components": {key: round(value, 2) for key, value in components.items()},
+    }
+
+
 def similarity_weight(
     row: dict[str, Any],
     target_dt: datetime,
     day_info: dict[str, Any],
 ) -> float:
-    visit_date = row.get("visit_date")
-    if not visit_date:
-        return 0.0
-
-    try:
-        history_dt = datetime.strptime(str(visit_date), "%Y-%m-%d")
-    except ValueError:
-        return 0.0
-
-    weight = 1.0
-
-    # 曜日一致を最も強く評価する。
-    if history_dt.weekday() == target_dt.weekday():
-        weight *= 4.0
-    elif (history_dt.weekday() >= 5) == (target_dt.weekday() >= 5):
-        weight *= 1.8
-    else:
-        weight *= 0.75
-
-    target_weather = normalize_weather(day_info.get("weather"))
-    history_weather = normalize_weather(row.get("weather"))
-    if target_weather and history_weather:
-        weight *= 1.8 if target_weather == history_weather else 0.8
-
-    target_price = day_info.get("ticket_price")
-    history_price = row.get("ticket_price")
-    try:
-        if target_price is not None and history_price is not None:
-            difference = abs(float(target_price) - float(history_price))
-            weight *= max(0.55, 1.7 - difference / 2500)
-    except (TypeError, ValueError):
-        pass
-
-    target_open = time_to_minutes(day_info.get("official_open_time"))
-    history_open = time_to_minutes(row.get("official_open_time"))
-    if target_open is not None and history_open is not None:
-        difference = abs(target_open - history_open)
-        weight *= max(0.6, 1.5 - difference / 180)
-
-    # 遠すぎる過去データを少しだけ弱める。
-    age_days = abs((target_dt.date() - history_dt.date()).days)
-    weight *= max(0.65, 1.0 - age_days / 2500)
-
-    return max(weight, 0.01)
+    """既存呼び出しとの互換性を保ちながらVer5スコアを重みに使う。"""
+    return float(similarity_score_details(row, target_dt, day_info)["score"])
 
 def build_attraction_prediction(
     history_rows: list[dict[str, Any]],

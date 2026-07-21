@@ -7,7 +7,15 @@ from constants import ATTRACTION_SPECS, WEEKDAY_NAMES
 from db import supabase_enabled, supabase_get
 from yosocal import fetch_official_park_info, fetch_yosocal_weather, fetch_yosocal_calendar, fetch_yosocal_full_context
 from learning import apply_learning_calibration, sync_prediction_results, save_prediction_log
-from prediction import normalize_weather, crowd_score_from_label, crowd_label_from_score, similarity_weight, build_attraction_prediction, calculate_prediction_confidence
+from prediction import (
+    normalize_weather,
+    crowd_score_from_label,
+    crowd_label_from_score,
+    similarity_weight,
+    similarity_score_details,
+    build_attraction_prediction,
+    calculate_prediction_confidence,
+)
 from mock_data import mock_forecast
 from utils import time_to_minutes, minutes_to_time, weighted_average
 
@@ -128,18 +136,35 @@ def api_forecast():
                 }
             ), 404
 
-        weighted_rows = [
-            (row, similarity_weight(row, target_dt, day))
+        scored_rows = [
+            (row, similarity_score_details(row, target_dt, day))
             for row in history_rows
         ]
-        weighted_rows = [
-            item for item in weighted_rows
-            if item[1] > 0
+        scored_rows = [
+            item for item in scored_rows
+            if float(item[1].get("score") or 0) > 0
         ]
-        weighted_rows.sort(key=lambda item: item[1], reverse=True)
+        scored_rows.sort(
+            key=lambda item: float(item[1].get("score") or 0),
+            reverse=True,
+        )
+
+        # 予測本体は既存形式（row, weight）を維持する。
+        weighted_rows = [
+            (row, float(details["score"]))
+            for row, details in scored_rows
+        ]
 
         # 条件が近い上位120件を予測に利用する。
         selected_rows = weighted_rows[:120]
+        similar_days = [
+            {
+                "date": details.get("visit_date"),
+                "score": details.get("score"),
+                "components": details.get("components", {}),
+            }
+            for _, details in scored_rows[:10]
+        ]
 
         entry_minutes = entry_dt.hour * 60 + entry_dt.minute
 
@@ -209,8 +234,8 @@ def api_forecast():
         weekday_name = WEEKDAY_NAMES[target_dt.weekday()]
 
         reasons = [
-            f"登録済み実績{len(history_rows)}件から、条件が近い上位{len(selected_rows)}件を使って予測しました。",
-            f"選択日は{weekday_name}曜日のため、同じ曜日の実績を強く評価しています。",
+            f"登録済み実績{len(history_rows)}件を100点式の特徴量スコアで比較し、上位{len(selected_rows)}件を使って予測しました。",
+            f"選択日は{weekday_name}曜日です。曜日・学校休暇傾向・季節イベント期・天気・気温・開園時刻・価格・データ鮮度を評価しています。",
             f"入園予定時刻{entry_time}にDPAが残っていた実績の割合を取得予測率として表示しています。",
         ]
 
@@ -302,9 +327,24 @@ def api_forecast():
                 "attractions": attractions,
                 "reasons": reasons,
                 "data_status": "live",
-                "prediction_method": "similar_history",
+                "prediction_method": "feature_scoring_v5",
                 "history_count": len(history_rows),
                 "sample_count": len(selected_rows),
+                "similar_days": similar_days,
+                "similarity_scoring": {
+                    "scale": 100,
+                    "selected_limit": 120,
+                    "features": [
+                        "weekday",
+                        "school_break",
+                        "season_event",
+                        "weather",
+                        "temperature",
+                        "open_time",
+                        "ticket_price",
+                        "recency",
+                    ],
+                },
                 "official_open_time": day.get("official_open_time"),
                 "official_close_time": day.get("official_close_time"),
                 "official_calendar_source": official_info.get("source_url") if official_info else None,

@@ -73,7 +73,7 @@ def save_prediction_log(payload: dict[str, Any]) -> None:
         "target_date": payload["date"], "entry_time": payload["entry_time"],
         "crowd_score": payload.get("crowd_score"), "ticket_price": payload.get("ticket_price"),
         "official_open_time": payload.get("official_open_time"), "weather": payload.get("weather"),
-        "model_version": "similar-history-v2-auto-learning",
+        "model_version": "similar-history-v5-feature-scoring",
         "prediction_payload": payload,
         "predicted_at": datetime.utcnow().isoformat() + "Z",
     }
