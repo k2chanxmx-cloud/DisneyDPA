@@ -480,6 +480,142 @@ def fetch_yosocal_calendar(target_dt: datetime) -> dict[str, Any] | None:
     return result
 
 
+
+
+YOSOCAL_EVENT_TYPE_LABELS = {
+    "00": "祝祭日", "01": "3〜4連休", "02": "連休", "03": "連休",
+    "04": "飛び石連休", "05": "飛び石連休", "06": "学生休暇",
+    "09": "期間イベント", "10": "期間イベント", "11": "期間イベント",
+    "12": "学生休暇", "13": "学生休暇", "14": "平日補正", "15": "ランド平日補正",
+    "16": "キャンパスデーパスポート", "17": "共通イベント", "18": "学生休暇",
+    "19": "学生休暇", "20": "共通イベント", "21": "ランドイベント",
+    "22": "ランドイベント", "23": "ランドイベント", "24": "シー平日補正",
+    "25": "ランドイベント", "26": "ランドイベント", "27": "ランド単日イベント",
+    "30": "シー単日イベント", "31": "シーイベント", "32": "シーイベント",
+    "33": "シーイベント", "34": "シー平日補正", "35": "シーイベント",
+    "36": "シーイベント", "37": "シー単日イベント", "38": "シー学生休暇",
+}
+
+
+def _parse_yosocal_generic_records(payload: str) -> list[list[str]]:
+    payload = payload.replace("\r", "").replace("\n", "")
+    records = []
+    for raw_record in payload.split("\\"):
+        raw_record = raw_record.strip().strip("\ufeff")
+        if not raw_record:
+            continue
+        records.append([column.strip().strip('"') for column in raw_record.split(",")])
+    return records
+
+
+def _yosocal_data_file_candidates(prefix: str, target_dt: datetime) -> list[str]:
+    current_year = date.today().year
+    names = [f"{prefix}.xml"]
+    if target_dt.year < current_year:
+        names.append(f"{prefix}{target_dt.year}.xml")
+    return list(dict.fromkeys(names))
+
+
+def _fetch_yosocal_rows(prefix: str, target_dt: datetime) -> tuple[list[list[str]], str | None]:
+    now = time.time()
+    for filename in _yosocal_data_file_candidates(prefix, target_dt):
+        response = requests.get(
+            f"{YOSOCAL_URL}{filename}",
+            headers={"User-Agent": "Mozilla/5.0 Chrome/150", "Referer": YOSOCAL_URL},
+            params={"time": int(now * 1000)},
+            timeout=REQUEST_TIMEOUT,
+        )
+        if response.status_code == 404:
+            continue
+        response.raise_for_status()
+        return _parse_yosocal_generic_records(_decode_yosocal_response(response)), filename
+    return [], None
+
+
+def _event_category(type_code: str, name: str) -> str:
+    text = name.lower()
+    if any(word in text for word in ("パレード", "ショー", "花火", "グリーティング")):
+        return "entertainment"
+    if any(word in text for word in ("春休み", "夏休み", "冬休み", "秋休み", "学生", "卒業旅行", "修学旅行", "テスト休み")):
+        return "school_holiday"
+    if any(word in text for word in ("ゴールデンウィーク", "お盆", "正月", "連休", "祝日", "祭日")):
+        return "holiday"
+    if any(word in text for word in ("ハロウィーン", "クリスマス", "イースター", "周年", "イベント")):
+        return "seasonal_event"
+    if type_code.startswith("2"):
+        return "tdl_event"
+    if type_code.startswith("3"):
+        return "tds_event"
+    return "other"
+
+
+def fetch_yosocal_full_context(target_dt: datetime) -> dict[str, Any]:
+    """date/cal/rest XMLから対象日の要素をまとめて取得する。"""
+    target_key = target_dt.strftime("%Y%m%d")
+    calendar = fetch_yosocal_calendar(target_dt) or {}
+
+    date_rows, date_file = _fetch_yosocal_rows("date", target_dt)
+    factors = []
+    for row in date_rows:
+        if len(row) < 5 or not re.fullmatch(r"\d{8}", row[1] or "") or not re.fullmatch(r"\d{8}", row[2] or ""):
+            continue
+        if row[1] <= target_key <= row[2]:
+            adjustment = _to_float(row[3])
+            name = row[4] or YOSOCAL_EVENT_TYPE_LABELS.get(row[0], "名称未登録")
+            factors.append({
+                "type_code": row[0],
+                "type_label": YOSOCAL_EVENT_TYPE_LABELS.get(row[0], "その他"),
+                "category": _event_category(row[0], name),
+                "name": name,
+                "start_date": f"{row[1][:4]}-{row[1][4:6]}-{row[1][6:8]}",
+                "end_date": f"{row[2][:4]}-{row[2][4:6]}-{row[2][6:8]}",
+                "base_adjustment_people": adjustment,
+                "extra_fields": row[5:],
+            })
+
+    rest_rows, rest_file = _fetch_yosocal_rows("rest", target_dt)
+    closures = []
+    for row in rest_rows:
+        if len(row) < 4 or not re.fullmatch(r"\d{8}", row[1] or "") or not re.fullmatch(r"\d{8}", row[2] or ""):
+            continue
+        if row[1] <= target_key <= row[2]:
+            closures.append({
+                "park": "tdl" if row[0] == "0" else "tds" if row[0] == "1" else "unknown",
+                "name": row[3],
+                "start_date": f"{row[1][:4]}-{row[1][4:6]}-{row[1][6:8]}",
+                "end_date": f"{row[2][:4]}-{row[2][4:6]}-{row[2][6:8]}",
+                "extra_fields": row[4:],
+            })
+
+    event_adjustment = int(round(sum(float(x["base_adjustment_people"] or 0) for x in factors)))
+    base_people = calendar.get("yosocal_crowd_people")
+    full_people = max(0, int(base_people + event_adjustment)) if base_people is not None else None
+    full_rank, full_label = _yosocal_rank(full_people)
+
+    passport_label = calendar.get("yosocal_passport_label")
+    estimated_price = None
+    if passport_label:
+        price_match = re.search(r"(?:￥|¥)?\s*(\d{1,2}(?:,\d{3})|\d{4,5})", passport_label)
+        if price_match:
+            estimated_price = int(price_match.group(1).replace(",", ""))
+
+    return {
+        **calendar,
+        "yosocal_full_crowd_people": full_people,
+        "yosocal_full_crowd_rank": full_rank,
+        "yosocal_full_crowd_label": full_label,
+        "yosocal_event_adjustment_people": event_adjustment,
+        "yosocal_factors": factors,
+        "yosocal_factor_count": len(factors),
+        "yosocal_closures": closures,
+        "yosocal_closure_count": len(closures),
+        "yosocal_date_source": f"{YOSOCAL_URL}{date_file}" if date_file else None,
+        "yosocal_rest_source": f"{YOSOCAL_URL}{rest_file}" if rest_file else None,
+        "yosocal_ticket_price_estimate": estimated_price,
+        "yosocal_prediction_scope": "cal.xmlの基本補正＋date.xmlの対象日要素。休止施設はrest.xmlから取得",
+    }
+
+
 def _time_text_to_minutes(value: Any) -> int | None:
     return time_to_minutes(value) if value and re.fullmatch(r"\d{1,2}:\d{2}", str(value)) else None
 
@@ -854,12 +990,14 @@ def api_forecast():
         yosocal_calendar = None
         yosocal_calendar_error = None
         try:
-            yosocal_calendar = fetch_yosocal_calendar(target_dt)
+            yosocal_calendar = fetch_yosocal_full_context(target_dt)
         except requests.RequestException as exc:
             yosocal_calendar_error = str(exc)
         if yosocal_calendar and not day.get("official_open_time"):
             day["official_open_time"] = yosocal_calendar.get("yosocal_open_time")
             day["official_close_time"] = yosocal_calendar.get("yosocal_close_time")
+        if yosocal_calendar and day.get("ticket_price") is None and yosocal_calendar.get("yosocal_ticket_price_estimate") is not None:
+            day["ticket_price"] = yosocal_calendar.get("yosocal_ticket_price_estimate")
 
         # Yosocalから対象日の天気を取得。取得失敗時はSupabase登録値、
         # それもなければ天気なしのまま予測を続行する。
@@ -1030,8 +1168,9 @@ def api_forecast():
             reasons.append("チケット価格と公式開園時間は東京ディズニーリゾート公式の日次カレンダーから自動取得しました。")
         elif official_error:
             reasons.append("公式カレンダーを取得できなかったため、登録済み値またはYosocalの時刻を利用しました。")
-        if yosocal_calendar and yosocal_calendar.get("yosocal_crowd_rank"):
-            reasons.append(f"比較用のYosocal基本混雑予想は{yosocal_calendar.get('yosocal_crowd_rank')}（{yosocal_calendar.get('yosocal_crowd_label')}）です。")
+        if yosocal_calendar and yosocal_calendar.get("yosocal_full_crowd_rank"):
+            reasons.append(f"Yosocalの全取得要素を反映した参考混雑予想は{yosocal_calendar.get('yosocal_full_crowd_rank')}（{yosocal_calendar.get('yosocal_full_crowd_label')}）です。")
+            reasons.append(f"対象日のイベント・休暇・連休など{yosocal_calendar.get('yosocal_factor_count', 0)}件、休止施設{yosocal_calendar.get('yosocal_closure_count', 0)}件を取得しました。")
         if learning.get("applied"):
             reasons.append(f"過去の予測と実績{learning.get('evaluated_count')}件から、売切れ時刻と取得率を自動補正しました。")
 
@@ -1089,11 +1228,23 @@ def api_forecast():
                 "official_open_time": day.get("official_open_time"),
                 "official_close_time": day.get("official_close_time"),
                 "official_calendar_source": official_info.get("source_url") if official_info else None,
-                "ticket_price_source": official_info.get("source") if official_info and official_info.get("ticket_price") is not None else ("Supabase" if day.get("ticket_price") is not None else None),
+                "ticket_price_source": official_info.get("source") if official_info and official_info.get("ticket_price") is not None else ("Yosocal passport label" if yosocal_calendar and yosocal_calendar.get("yosocal_ticket_price_estimate") is not None else ("Supabase" if day.get("ticket_price") is not None else None)),
                 "yosocal_crowd_people": yosocal_calendar.get("yosocal_crowd_people") if yosocal_calendar else None,
                 "yosocal_crowd_rank": yosocal_calendar.get("yosocal_crowd_rank") if yosocal_calendar else None,
                 "yosocal_crowd_label": yosocal_calendar.get("yosocal_crowd_label") if yosocal_calendar else None,
                 "yosocal_prediction_scope": yosocal_calendar.get("yosocal_prediction_scope") if yosocal_calendar else None,
+                "yosocal_full_crowd_people": yosocal_calendar.get("yosocal_full_crowd_people") if yosocal_calendar else None,
+                "yosocal_full_crowd_rank": yosocal_calendar.get("yosocal_full_crowd_rank") if yosocal_calendar else None,
+                "yosocal_full_crowd_label": yosocal_calendar.get("yosocal_full_crowd_label") if yosocal_calendar else None,
+                "yosocal_event_adjustment_people": yosocal_calendar.get("yosocal_event_adjustment_people") if yosocal_calendar else None,
+                "yosocal_factors": yosocal_calendar.get("yosocal_factors", []) if yosocal_calendar else [],
+                "yosocal_factor_count": yosocal_calendar.get("yosocal_factor_count", 0) if yosocal_calendar else 0,
+                "yosocal_closures": yosocal_calendar.get("yosocal_closures", []) if yosocal_calendar else [],
+                "yosocal_closure_count": yosocal_calendar.get("yosocal_closure_count", 0) if yosocal_calendar else 0,
+                "yosocal_date_source": yosocal_calendar.get("yosocal_date_source") if yosocal_calendar else None,
+                "yosocal_rest_source": yosocal_calendar.get("yosocal_rest_source") if yosocal_calendar else None,
+                "yosocal_passport_label": yosocal_calendar.get("yosocal_passport_label") if yosocal_calendar else None,
+                "yosocal_ticket_price_estimate": yosocal_calendar.get("yosocal_ticket_price_estimate") if yosocal_calendar else None,
                 "learning": learning,
             }
         try:
