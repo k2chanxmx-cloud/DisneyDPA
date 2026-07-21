@@ -6,7 +6,7 @@ from config import APP_VERSION, APP_BUILD, APP_ENV
 from constants import ATTRACTION_SPECS, WEEKDAY_NAMES
 from db import supabase_enabled, supabase_get
 from yosocal import fetch_official_park_info, fetch_yosocal_weather, fetch_yosocal_calendar, fetch_yosocal_full_context
-from learning import apply_learning_calibration, sync_prediction_results, save_prediction_log
+from learning import apply_learning_calibration, sync_prediction_results, save_prediction_log, build_accuracy_dashboard
 from prediction import (
     normalize_weather,
     crowd_score_from_label,
@@ -364,7 +364,7 @@ def api_forecast():
                 "attractions": attractions,
                 "reasons": reasons,
                 "data_status": "live",
-                "prediction_method": "attraction_feature_scoring_v5_0_2",
+                "prediction_method": "attraction_feature_scoring_v5_0_3",
                 "history_count": len(history_rows),
                 "sample_count": len(generic_selected_rows),
                 "similar_days": similar_days,
@@ -448,6 +448,71 @@ def api_forecast():
             "version": APP_VERSION,
             "build": APP_BUILD,
             "error": "予測処理で予期しないエラーが発生しました。",
+            "error_type": type(exc).__name__,
+            "error_detail": str(exc),
+        }), 500
+
+
+@bp.get("/accuracy")
+def accuracy_page():
+    return render_template("accuracy.html")
+
+@bp.get("/api/accuracy")
+def api_accuracy():
+    if not supabase_enabled():
+        return jsonify({
+            "version": APP_VERSION,
+            "build": APP_BUILD,
+            "data_status": "demo",
+            "summary": {
+                "evaluated_prediction_count": 0,
+                "evaluated_attraction_count": 0,
+                "mean_absolute_error_minutes": None,
+                "bias_minutes": None,
+                "within_30_minutes_rate": None,
+                "availability_brier_score": None,
+            },
+            "attractions": [],
+            "recent_evaluations": [],
+            "message": "Supabase接続後、評価済み予測が表示されます。",
+        })
+
+    try:
+        history_rows = supabase_get("dpa_history_view", {
+            "select": "*", "order": "visit_date.desc", "limit": "1000"
+        })
+        newly_evaluated_count = sync_prediction_results(history_rows)
+        logs = supabase_get("prediction_logs", {
+            "select": "*",
+            "evaluated_at": "not.is.null",
+            "order": "target_date.desc",
+            "limit": "500",
+        })
+        dashboard = build_accuracy_dashboard(logs)
+        return jsonify({
+            "version": APP_VERSION,
+            "build": APP_BUILD,
+            "data_status": "live",
+            "newly_evaluated_count": newly_evaluated_count,
+            **dashboard,
+            "message": (
+                "評価済み予測から精度を集計しました。"
+                if logs else
+                "評価対象の日付が過ぎ、実績が登録されると精度が表示されます。"
+            ),
+        })
+    except requests.RequestException as exc:
+        return jsonify({
+            "version": APP_VERSION,
+            "build": APP_BUILD,
+            "error": f"精度データの取得に失敗しました: {exc}",
+            "error_type": type(exc).__name__,
+        }), 502
+    except Exception as exc:
+        return jsonify({
+            "version": APP_VERSION,
+            "build": APP_BUILD,
+            "error": "精度集計で予期しないエラーが発生しました。",
             "error_type": type(exc).__name__,
             "error_detail": str(exc),
         }), 500
