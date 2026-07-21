@@ -1,6 +1,7 @@
 from datetime import date, datetime
+import re
 from typing import Any
-from db import supabase_get, supabase_patch, supabase_upsert
+from db import supabase_get, supabase_patch, supabase_upsert, supabase_write_enabled
 from utils import time_to_minutes, minutes_to_time
 
 def _time_text_to_minutes(value: Any) -> int | None:
