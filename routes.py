@@ -9,6 +9,7 @@ from yosocal import fetch_official_park_info, fetch_yosocal_weather, fetch_yosoc
 from learning import apply_learning_calibration, sync_prediction_results, save_prediction_log, build_accuracy_dashboard
 from feature_learning import build_adaptive_feature_profiles
 from season_optimizer import build_seasonal_profiles
+from hybrid_ai import apply_hybrid_ai
 from prediction import (
     normalize_weather,
     crowd_score_from_label,
@@ -193,6 +194,8 @@ def api_forecast():
         attraction_specs = ATTRACTION_SPECS
         attractions = []
         attraction_similarity: dict[str, Any] = {}
+        selected_rows_by_code: dict[str, list[dict[str, Any]]] = {}
+        attraction_fields: dict[str, str] = {}
 
         for code, name, sellout_field, limit_field in attraction_specs:
             profile_name, feature_weights = get_scoring_profile(code, optimized_profiles)
@@ -233,6 +236,8 @@ def api_forecast():
                     feature_weights=feature_weights,
                 )
             )
+            selected_rows_by_code[code] = [row for row, _ in selected_rows]
+            attraction_fields[code] = sellout_field
             attraction_similarity[code] = {
                 "scoring_profile": profile_name,
                 "feature_weights": feature_weights,
@@ -244,6 +249,12 @@ def api_forecast():
 
         learning = apply_learning_calibration(attractions, learning_logs)
         learning["newly_evaluated_count"] = evaluated_synced
+        hybrid_ai = apply_hybrid_ai(
+            attractions,
+            learning_logs,
+            selected_rows_by_code,
+            attraction_fields,
+        )
 
         crowd_values: list[tuple[float, float]] = []
         for row, weight in generic_selected_rows:
@@ -311,7 +322,7 @@ def api_forecast():
             selected_count=round(sum(int(item.get("selected_history_count") or 0) for item in attractions) / max(1, len(attractions))),
             history_count=len(history_rows),
             used_condition_count=len(used_conditions),
-            learning_applied=bool(learning.get("applied") or feature_learning.get("applied") or season_optimization.get("applied")),
+            learning_applied=bool(learning.get("applied") or feature_learning.get("applied") or season_optimization.get("applied") or hybrid_ai.get("applied")),
         )
         reasons.append(
             f"予測信頼度は{prediction_confidence['score']}%（{prediction_confidence['label']}）です。"
@@ -328,6 +339,8 @@ def api_forecast():
             reasons.append(f"過去の予測と実績から、評価件数に応じた段階式の誤差補正を適用しました。")
         if season_optimization.get("applied"):
             reasons.append(f"{season_optimization.get('target_segment_label')}専用の評価実績から季節・イベント最適化を適用しました。")
+        if hybrid_ai.get("applied"):
+            reasons.append("複数モデルを比較し、評価実績に応じて最良モデルまたは重み付きアンサンブルを最終予測に採用しました。")
 
         if yosocal_weather:
             reasons.append(
@@ -379,7 +392,7 @@ def api_forecast():
                 "attractions": attractions,
                 "reasons": reasons,
                 "data_status": "live",
-                "prediction_method": "season_event_optimizer_v6_2",
+                "prediction_method": "hybrid_ai_engine_v7",
                 "history_count": len(history_rows),
                 "sample_count": len(generic_selected_rows),
                 "similar_days": similar_days,
@@ -425,6 +438,7 @@ def api_forecast():
                 "learning": learning,
                 "feature_learning": feature_learning,
                 "season_optimization": season_optimization,
+                "hybrid_ai": hybrid_ai,
                 "prediction_confidence": prediction_confidence,
                 "source_diagnostics": {
                     "official_calendar": {

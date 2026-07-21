@@ -91,3 +91,33 @@ Bias補正（Ver6.0）も引き続き併用します。
 - 全体学習重みへ最大45%まで安全に融合
 - 10件未満では適用せず、通常のVer6.1重みを維持
 - APIに `season_optimization` 診断情報を追加
+
+## Ver7.0.0 Hybrid AI Engine（最終版）
+
+複数の売切れ時刻モデルを同時に計算し、アトラクションごとに最終予測を決定します。
+
+比較するモデル:
+
+- `season_event`: Ver6.2の季節・イベント最適化モデル
+- `adaptive_bias`: Ver6.0の段階式誤差補正モデル
+- `recent_trend`: 類似日のうち直近20件を使う傾向モデル
+- `robust_median`: 採用された類似日全体の中央値モデル
+
+選択方式:
+
+- モデル別の評価が10件以上: 平均絶対誤差（MAE）が最小のモデルを自動採用
+- モデル別の評価が10件未満: 暴走防止のため事前重み付きアンサンブルを採用
+- 新しい予測ログには各候補モデルの予測値を保存し、将来の比較精度を自動的に育成
+
+API追加項目:
+
+- `prediction_method: hybrid_ai_engine_v7`
+- `hybrid_ai.engine`
+- `hybrid_ai.attractions.*.selection_mode`
+- `hybrid_ai.attractions.*.selected_model`
+- `hybrid_ai.attractions.*.final_prediction`
+- `hybrid_ai.attractions.*.candidates`
+- `hybrid_ai.attractions.*.ensemble_weights`
+- 各アトラクションにも `hybrid_selected_model`、`hybrid_final_prediction` を追加
+
+Ver5〜Ver6.2の特徴量スコア、精度ダッシュボード、Bias補正、特徴量学習、季節最適化はすべて継続して利用します。

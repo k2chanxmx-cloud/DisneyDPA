@@ -1,7 +1,7 @@
 import os
 
-APP_VERSION = "6.2.0"
-APP_BUILD = "season-event-optimizer-v6-2"
+APP_VERSION = "7.0.0"
+APP_BUILD = "hybrid-ai-engine-v7"
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower() or "development"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")

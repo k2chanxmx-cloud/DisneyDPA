@@ -20,6 +20,8 @@ def mock_forecast(target_date: str, entry_time: str) -> dict[str, Any]:
         "ticket_price": None,
         "recommended_level": 2 if weekend else 4,
         "data_status": "demo",
+        "prediction_method": "hybrid_ai_engine_v7",
+        "hybrid_ai": {"engine": "hybrid_ai_engine_v7", "applied": False, "message": "Supabase接続後にモデル比較を実行します。"},
         "attractions": [
             {
                 "attraction_code": "beauty",
