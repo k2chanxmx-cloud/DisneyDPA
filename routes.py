@@ -312,7 +312,7 @@ def api_forecast():
             reasons.append(f"Yosocalの全取得要素を反映した参考混雑予想は{yosocal_calendar.get('yosocal_full_crowd_rank')}（{yosocal_calendar.get('yosocal_full_crowd_label')}）です。")
             reasons.append(f"対象日のイベント・休暇・連休など{yosocal_calendar.get('yosocal_factor_count', 0)}件、休止施設{yosocal_calendar.get('yosocal_closure_count', 0)}件を取得しました。")
         if learning.get("applied"):
-            reasons.append(f"過去の予測と実績{learning.get('evaluated_count')}件から、売切れ時刻と取得率を自動補正しました。")
+            reasons.append(f"過去の予測と実績から、評価件数に応じた段階式の誤差補正を適用しました。")
 
         if yosocal_weather:
             reasons.append(
@@ -364,7 +364,7 @@ def api_forecast():
                 "attractions": attractions,
                 "reasons": reasons,
                 "data_status": "live",
-                "prediction_method": "attraction_feature_scoring_v5_0_3",
+                "prediction_method": "adaptive_bias_correction_v6",
                 "history_count": len(history_rows),
                 "sample_count": len(generic_selected_rows),
                 "similar_days": similar_days,

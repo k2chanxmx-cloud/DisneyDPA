@@ -1,7 +1,7 @@
 import os
 
-APP_VERSION = "5.0.3"
-APP_BUILD = "prediction-accuracy-dashboard-v5-0-3"
+APP_VERSION = "6.0.0"
+APP_BUILD = "adaptive-bias-correction-v6"
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower() or "development"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
