@@ -7,6 +7,7 @@ from constants import ATTRACTION_SPECS, WEEKDAY_NAMES
 from db import supabase_enabled, supabase_get
 from yosocal import fetch_official_park_info, fetch_yosocal_weather, fetch_yosocal_calendar, fetch_yosocal_full_context
 from learning import apply_learning_calibration, sync_prediction_results, save_prediction_log, build_accuracy_dashboard
+from feature_learning import build_adaptive_feature_profiles
 from prediction import (
     normalize_weather,
     crowd_score_from_label,
@@ -141,6 +142,19 @@ def api_forecast():
                 }
             ), 404
 
+        # Ver6.1: 評価済み予測から特徴量重みを先に学習し、今回の類似日選択へ反映する。
+        evaluated_synced = 0
+        learning_logs: list[dict[str, Any]] = []
+        try:
+            evaluated_synced = sync_prediction_results(history_rows)
+            learning_logs = supabase_get("prediction_logs", {
+                "select": "*", "evaluated_at": "not.is.null", "order": "target_date.desc", "limit": "300"
+            })
+        except Exception:
+            learning_logs = []
+        feature_learning = build_adaptive_feature_profiles(learning_logs)
+        learned_profiles = feature_learning.get("profiles", {})
+
         # 混雑予測は全体向けの標準プロファイルを使う。
         generic_scored_rows = [
             (row, similarity_score_details(row, target_dt, day))
@@ -173,9 +187,9 @@ def api_forecast():
         attraction_similarity: dict[str, Any] = {}
 
         for code, name, sellout_field, limit_field in attraction_specs:
-            profile_name, feature_weights = get_scoring_profile(code)
+            profile_name, feature_weights = get_scoring_profile(code, learned_profiles)
             scored_rows = [
-                (row, similarity_score_details(row, target_dt, day, code))
+                (row, similarity_score_details(row, target_dt, day, code, learned_profiles))
                 for row in history_rows
             ]
             scored_rows = [
@@ -220,15 +234,6 @@ def api_forecast():
                 "similar_days": top_similar_days,
             }
 
-        evaluated_synced = 0
-        learning_logs: list[dict[str, Any]] = []
-        try:
-            evaluated_synced = sync_prediction_results(history_rows)
-            learning_logs = supabase_get("prediction_logs", {
-                "select": "*", "evaluated_at": "not.is.null", "order": "target_date.desc", "limit": "200"
-            })
-        except Exception:
-            learning_logs = []
         learning = apply_learning_calibration(attractions, learning_logs)
         learning["newly_evaluated_count"] = evaluated_synced
 
@@ -298,7 +303,7 @@ def api_forecast():
             selected_count=round(sum(int(item.get("selected_history_count") or 0) for item in attractions) / max(1, len(attractions))),
             history_count=len(history_rows),
             used_condition_count=len(used_conditions),
-            learning_applied=bool(learning.get("applied")),
+            learning_applied=bool(learning.get("applied") or feature_learning.get("applied")),
         )
         reasons.append(
             f"予測信頼度は{prediction_confidence['score']}%（{prediction_confidence['label']}）です。"
@@ -364,7 +369,7 @@ def api_forecast():
                 "attractions": attractions,
                 "reasons": reasons,
                 "data_status": "live",
-                "prediction_method": "adaptive_bias_correction_v6",
+                "prediction_method": "adaptive_feature_learning_v6_1",
                 "history_count": len(history_rows),
                 "sample_count": len(generic_selected_rows),
                 "similar_days": similar_days,
@@ -408,6 +413,7 @@ def api_forecast():
                 "yosocal_passport_label": yosocal_calendar.get("yosocal_passport_label") if yosocal_calendar else None,
                 "yosocal_ticket_price_estimate": yosocal_calendar.get("yosocal_ticket_price_estimate") if yosocal_calendar else None,
                 "learning": learning,
+                "feature_learning": feature_learning,
                 "prediction_confidence": prediction_confidence,
                 "source_diagnostics": {
                     "official_calendar": {

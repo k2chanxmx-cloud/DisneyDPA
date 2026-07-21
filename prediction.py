@@ -161,12 +161,18 @@ MIN_SELECTED_HISTORY = 50
 MAX_SELECTED_HISTORY = 120
 
 
-def get_scoring_profile(attraction_code: str | None = None) -> tuple[str, dict[str, float]]:
+def get_scoring_profile(
+    attraction_code: str | None = None,
+    learned_weights: dict[str, dict[str, float]] | None = None,
+) -> tuple[str, dict[str, float]]:
     profile_name = ATTRACTION_SCORING_PROFILES.get(
         str(attraction_code or "").strip(),
         "default_v5",
     )
-    return profile_name, FEATURE_WEIGHTS[profile_name]
+    code = str(attraction_code or "").strip()
+    if learned_weights and code in learned_weights:
+        return profile_name + "_adaptive", dict(learned_weights[code])
+    return profile_name, dict(FEATURE_WEIGHTS[profile_name])
 
 
 def similarity_score_details(
@@ -174,10 +180,11 @@ def similarity_score_details(
     target_dt: datetime,
     day_info: dict[str, Any],
     attraction_code: str | None = None,
+    learned_weights: dict[str, dict[str, float]] | None = None,
 ) -> dict[str, Any]:
     """Ver5.0.2のアトラクション別100点式類似度と内訳を返す。"""
     visit_date = row.get("visit_date")
-    profile_name, weights = get_scoring_profile(attraction_code)
+    profile_name, weights = get_scoring_profile(attraction_code, learned_weights)
     if not visit_date:
         return {"score": 0.0, "components": {}, "visit_date": None, "profile": profile_name}
 
